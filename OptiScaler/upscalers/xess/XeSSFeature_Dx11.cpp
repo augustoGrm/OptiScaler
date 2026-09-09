@@ -1,6 +1,8 @@
 #include <pch.h>
 #include "XeSSFeature_Dx11.h"
 
+using Microsoft::WRL::ComPtr;
+
 static std::string ResultToString(xess_result_t result)
 {
     switch (result)
@@ -252,7 +254,7 @@ bool XeSSFeature_Dx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InConte
     return true;
 }
 
-bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Parameter* InParameters)
+bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_Parameter* InParameters)
 {
     LOG_FUNC();
 
@@ -261,6 +263,8 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
         LOG_ERROR("Not inited!");
         return false;
     }
+
+    bool evalResult = true;
 
     if (!RCAS->IsInit())
         Config::Instance()->RcasEnabled = false;
@@ -271,64 +275,45 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     if (Config::Instance()->DADepthIsLinear.value_for_config_ignore_default() == std::nullopt)
         Config::Instance()->DADepthIsLinear.set_volatile_value(false);
 
-    ID3D11ShaderResourceView* restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-    ID3D11SamplerState* restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
-    ID3D11Buffer* restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
-    ID3D11UnorderedAccessView* restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
-    ID3D11RenderTargetView* restoreRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-    ID3D11DepthStencilView* restoreDSV = nullptr;
+    ComPtr<ID3D11ShaderResourceView> restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+    ComPtr<ID3D11SamplerState> restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
+    ComPtr<ID3D11Buffer> restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
+    ComPtr<ID3D11UnorderedAccessView> restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
+    ComPtr<ID3D11RenderTargetView> restoreRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+    ID3D11RenderTargetView* rawRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+    ComPtr<ID3D11DepthStencilView> restoreDSV = nullptr;
 
     // backup compute shader resources
     for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
     {
-        restoreSRVs[i] = nullptr;
-        DeviceContext->CSGetShaderResources(i, 1, &restoreSRVs[i]);
-
-        if (restoreSRVs[i])
-            restoreSRVs[i]->Release();
+        InDeviceContext->CSGetShaderResources(i, 1, restoreSRVs[i].GetAddressOf());
     }
 
     for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
     {
-        restoreSamplerStates[i] = nullptr;
-        DeviceContext->CSGetSamplers(i, 1, &restoreSamplerStates[i]);
-
-        if (restoreSamplerStates[i])
-            restoreSamplerStates[i]->Release();
+        InDeviceContext->CSGetSamplers(i, 1, restoreSamplerStates[i].GetAddressOf());
     }
 
     for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
     {
-        restoreCBVs[i] = nullptr;
-        DeviceContext->CSGetConstantBuffers(i, 1, &restoreCBVs[i]);
-
-        if (restoreCBVs[i])
-            restoreCBVs[i]->Release();
+        InDeviceContext->CSGetConstantBuffers(i, 1, restoreCBVs[i].GetAddressOf());
     }
 
     for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
     {
-        restoreUAVs[i] = nullptr;
-        DeviceContext->CSGetUnorderedAccessViews(i, 1, &restoreUAVs[i]);
-
-        if (restoreUAVs[i])
-            restoreUAVs[i]->Release();
+        InDeviceContext->CSGetUnorderedAccessViews(i, 1, restoreUAVs[i].GetAddressOf());
     }
 
-    DeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, &restoreDSV);
+    InDeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rawRTVs, restoreDSV.GetAddressOf());
+
+    for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+    {
+        restoreRTVs[i].Attach(rawRTVs[i]);
+    }
 
     // Unbind RenderTargets
     ID3D11RenderTargetView* nullRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-    DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, nullRTVs, nullptr);
-
-    for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-    {
-        if (restoreRTVs[i])
-            restoreRTVs[i]->Release();
-    }
-
-    if (restoreDSV)
-        restoreDSV->Release();
+    InDeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, nullRTVs, nullptr);
 
     if (State::Instance().xessDebug)
     {
@@ -544,97 +529,107 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     if (xessResult != XESS_RESULT_SUCCESS)
     {
         LOG_ERROR("D3D11Execute error: {0}", ResultToString(xessResult));
-        return false;
+        evalResult = false;
     }
 
-    // apply rcas
-    if (Config::Instance()->RcasEnabled.value_or(true) &&
-        (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or(false) &&
-                               Config::Instance()->MotionSharpness.value_or(0.4) > 0.0f)) &&
-        RCAS != nullptr && RCAS.get() != nullptr && RCAS->CanRender())
+    if (evalResult)
     {
-        RcasConstants rcasConstants {};
+        bool shadersOk = true;
 
-        rcasConstants.Sharpness = _sharpness;
-        InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &rcasConstants.MvScaleX);
-        InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &rcasConstants.MvScaleY);
-        rcasConstants.CameraNear = Config::Instance()->FsrCameraNear.value_or_default();
-        rcasConstants.CameraFar = Config::Instance()->FsrCameraFar.value_or_default();
-
-        if (useSS)
+        // apply rcas
+        if (Config::Instance()->RcasEnabled.value_or(true) &&
+            (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or(false) &&
+                                   Config::Instance()->MotionSharpness.value_or(0.4) > 0.0f)) &&
+            RCAS != nullptr && RCAS.get() != nullptr && RCAS->CanRender())
         {
-            if (!RCAS->Dispatch(Device, DeviceContext, (ID3D11Texture2D*) params.pOutputTexture,
-                                (ID3D11Texture2D*) params.pVelocityTexture, rcasConstants, OutputScaler->Buffer(),
-                                (ID3D11Texture2D*) params.pDepthTexture))
+            RcasConstants rcasConstants {};
+
+            rcasConstants.Sharpness = _sharpness;
+            InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &rcasConstants.MvScaleX);
+            InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &rcasConstants.MvScaleY);
+            rcasConstants.CameraNear = Config::Instance()->FsrCameraNear.value_or_default();
+            rcasConstants.CameraFar = Config::Instance()->FsrCameraFar.value_or_default();
+
+            if (useSS)
             {
-                Config::Instance()->RcasEnabled = false;
-                return true;
-            }
-        }
-        else
-        {
-            if (!RCAS->Dispatch(Device, DeviceContext, (ID3D11Texture2D*) params.pOutputTexture,
-                                (ID3D11Texture2D*) params.pVelocityTexture, rcasConstants,
-                                (ID3D11Texture2D*) paramOutput, (ID3D11Texture2D*) params.pDepthTexture))
-            {
-                Config::Instance()->RcasEnabled = false;
-                return true;
-            }
-        }
-    }
-
-    if (useSS)
-    {
-        LOG_DEBUG("scaling output...");
-        if (!OutputScaler->Dispatch(Device, DeviceContext, OutputScaler->Buffer(), (ID3D11Texture2D*) paramOutput))
-        {
-            Config::Instance()->OutputScalingEnabled = false;
-            State::Instance().changeBackend[_handle->Id] = true;
-            return true;
-        }
-    }
-
-    // imgui
-    if (!Config::Instance()->OverlayMenu.value_or(true) && _frameCount > 30)
-    {
-        if (Imgui != nullptr && Imgui.get() != nullptr)
-        {
-            if (Imgui->IsHandleDifferent())
-            {
-                Imgui.reset();
+                if (!RCAS->Dispatch(Device, InDeviceContext, (ID3D11Texture2D*) params.pOutputTexture,
+                                    (ID3D11Texture2D*) params.pVelocityTexture, rcasConstants, OutputScaler->Buffer(),
+                                    (ID3D11Texture2D*) params.pDepthTexture))
+                {
+                    Config::Instance()->RcasEnabled = false;
+                    shadersOk = false;
+                }
             }
             else
-                Imgui->Render(DeviceContext, paramOutput);
+            {
+                if (!RCAS->Dispatch(Device, InDeviceContext, (ID3D11Texture2D*) params.pOutputTexture,
+                                    (ID3D11Texture2D*) params.pVelocityTexture, rcasConstants,
+                                    (ID3D11Texture2D*) paramOutput, (ID3D11Texture2D*) params.pDepthTexture))
+                {
+                    Config::Instance()->RcasEnabled = false;
+                    shadersOk = false;
+                }
+            }
         }
-        else
+
+        if (useSS && shadersOk)
         {
-            if (Imgui == nullptr || Imgui.get() == nullptr)
-                Imgui = std::make_unique<Menu_Dx11>(GetForegroundWindow(), Device);
+            LOG_DEBUG("scaling output...");
+            if (!OutputScaler->Dispatch(Device, InDeviceContext, OutputScaler->Buffer(),
+                                        (ID3D11Texture2D*) paramOutput))
+            {
+                Config::Instance()->OutputScalingEnabled = false;
+                State::Instance().changeBackend[_handle->Id] = true;
+                shadersOk = false;
+            }
+        }
+
+        // imgui
+        if (shadersOk && !Config::Instance()->OverlayMenu.value_or(true) && _frameCount > 30)
+        {
+            if (Imgui != nullptr && Imgui.get() != nullptr)
+            {
+                if (Imgui->IsHandleDifferent())
+                {
+                    Imgui.reset();
+                }
+                else
+                    Imgui->Render(InDeviceContext, paramOutput);
+            }
+            else
+            {
+                if (Imgui == nullptr || Imgui.get() == nullptr)
+                    Imgui = std::make_unique<Menu_Dx11>(GetForegroundWindow(), Device);
+            }
         }
     }
 
     // restore compute shader resources
     for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
     {
-        DeviceContext->CSSetShaderResources(i, 1, &restoreSRVs[i]);
+        auto raw = restoreSRVs[i].Get();
+        InDeviceContext->CSSetShaderResources(i, 1, &raw);
     }
 
     for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
     {
-        DeviceContext->CSSetSamplers(i, 1, &restoreSamplerStates[i]);
+        auto raw = restoreSamplerStates[i].Get();
+        InDeviceContext->CSSetSamplers(i, 1, &raw);
     }
 
     for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
     {
-        DeviceContext->CSSetConstantBuffers(i, 1, &restoreCBVs[i]);
+        auto raw = restoreCBVs[i].Get();
+        InDeviceContext->CSSetConstantBuffers(i, 1, &raw);
     }
 
     for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
     {
-        DeviceContext->CSSetUnorderedAccessViews(i, 1, &restoreUAVs[i], 0);
+        auto raw = restoreUAVs[i].Get();
+        InDeviceContext->CSSetUnorderedAccessViews(i, 1, &raw, 0);
     }
 
-    DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, restoreDSV);
+    InDeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rawRTVs, restoreDSV.Get());
 
     _frameCount++;
 

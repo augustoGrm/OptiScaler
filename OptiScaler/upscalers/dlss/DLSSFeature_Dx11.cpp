@@ -4,6 +4,8 @@
 
 #include <dxgi.h>
 
+using Microsoft::WRL::ComPtr;
+
 bool DLSSFeatureDx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InContext, NVSDK_NGX_Parameter* InParameters)
 {
     if (NVNGXProxy::NVNGXModule() == nullptr)
@@ -91,6 +93,7 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
     }
 
     NVSDK_NGX_Result nvResult;
+    bool evalResult = true;
 
     bool rcasEnabled = Version() >= feature_version { 2, 5, 1 };
 
@@ -103,64 +106,45 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
 
     if (NVNGXProxy::D3D11_EvaluateFeature() != nullptr)
     {
-        ID3D11ShaderResourceView* restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-        ID3D11SamplerState* restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
-        ID3D11Buffer* restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
-        ID3D11UnorderedAccessView* restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
-        ID3D11RenderTargetView* restoreRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-        ID3D11DepthStencilView* restoreDSV = nullptr;
+        ComPtr<ID3D11ShaderResourceView> restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+        ComPtr<ID3D11SamplerState> restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
+        ComPtr<ID3D11Buffer> restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
+        ComPtr<ID3D11UnorderedAccessView> restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
+        ComPtr<ID3D11RenderTargetView> restoreRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+        ID3D11RenderTargetView* rawRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+        ComPtr<ID3D11DepthStencilView> restoreDSV = nullptr;
 
         // backup compute shader resources
         for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
         {
-            restoreSRVs[i] = nullptr;
-            InDeviceContext->CSGetShaderResources(i, 1, &restoreSRVs[i]);
-
-            if (restoreSRVs[i])
-                restoreSRVs[i]->Release();
+            InDeviceContext->CSGetShaderResources(i, 1, restoreSRVs[i].GetAddressOf());
         }
 
         for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
         {
-            restoreSamplerStates[i] = nullptr;
-            InDeviceContext->CSGetSamplers(i, 1, &restoreSamplerStates[i]);
-
-            if (restoreSamplerStates[i])
-                restoreSamplerStates[i]->Release();
+            InDeviceContext->CSGetSamplers(i, 1, restoreSamplerStates[i].GetAddressOf());
         }
 
         for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
         {
-            restoreCBVs[i] = nullptr;
-            InDeviceContext->CSGetConstantBuffers(i, 1, &restoreCBVs[i]);
-
-            if (restoreCBVs[i])
-                restoreCBVs[i]->Release();
+            InDeviceContext->CSGetConstantBuffers(i, 1, restoreCBVs[i].GetAddressOf());
         }
 
         for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
         {
-            restoreUAVs[i] = nullptr;
-            InDeviceContext->CSGetUnorderedAccessViews(i, 1, &restoreUAVs[i]);
-
-            if (restoreUAVs[i])
-                restoreUAVs[i]->Release();
+            InDeviceContext->CSGetUnorderedAccessViews(i, 1, restoreUAVs[i].GetAddressOf());
         }
 
-        InDeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, &restoreDSV);
+        InDeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rawRTVs, restoreDSV.GetAddressOf());
+
+        for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+        {
+            restoreRTVs[i].Attach(rawRTVs[i]);
+        }
 
         // Unbind RenderTargets
         ID3D11RenderTargetView* nullRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
         InDeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, nullRTVs, nullptr);
-
-        for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-        {
-            if (restoreRTVs[i])
-                restoreRTVs[i]->Release();
-        }
-
-        if (restoreDSV)
-            restoreDSV->Release();
 
         ProcessEvaluateParams(InParameters);
 
@@ -187,7 +171,9 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
                 setBuffer = paramOutput;
         }
         else
+        {
             setBuffer = paramOutput;
+        }
 
         // RCAS sharpness & preperation
         _sharpness = GetSharpness(InParameters);
@@ -209,118 +195,128 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
         if (nvResult != NVSDK_NGX_Result_Success)
         {
             LOG_ERROR("_EvaluateFeature result: {0:X}", (unsigned int) nvResult);
-            return false;
+            evalResult = false;
         }
 
-        LOG_TRACE("_EvaluateFeature ok!");
-
-        // Apply CAS
-        if (Config::Instance()->RcasEnabled.value_or(rcasEnabled) &&
-            (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or_default() &&
-                                   Config::Instance()->MotionSharpness.value_or_default() > 0.0f)) &&
-            RCAS->CanRender())
+        if (evalResult)
         {
-            RcasConstants rcasConstants {};
+            bool shadersOk = true;
 
-            rcasConstants.Sharpness = _sharpness;
-            InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &rcasConstants.MvScaleX);
-            InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &rcasConstants.MvScaleY);
-
-            float nearPlane = 0.0f;
-            float farPlane = 0.0f;
-
-            if (InParameters->Get("DLSSG.CameraNear", &nearPlane) == NVSDK_NGX_Result_Success &&
-                InParameters->Get("DLSSG.CameraFar", &farPlane) == NVSDK_NGX_Result_Success)
+            // Apply CAS
+            if (Config::Instance()->RcasEnabled.value_or(rcasEnabled) &&
+                (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or_default() &&
+                                       Config::Instance()->MotionSharpness.value_or_default() > 0.0f)) &&
+                RCAS->CanRender())
             {
-                rcasConstants.CameraNear = nearPlane;
-                rcasConstants.CameraFar = farPlane;
-            }
-            else
-            {
-                rcasConstants.CameraNear = Config::Instance()->FsrCameraNear.value_or_default();
-                rcasConstants.CameraFar = Config::Instance()->FsrCameraFar.value_or_default();
-            }
+                RcasConstants rcasConstants {};
 
-            if (useSS)
-            {
-                if (!RCAS->Dispatch(Device, InDeviceContext, (ID3D11Texture2D*) setBuffer,
-                                    (ID3D11Texture2D*) paramMotion, rcasConstants, OutputScaler->Buffer(),
-                                    (ID3D11Texture2D*) paramDepth))
+                rcasConstants.Sharpness = _sharpness;
+                InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_X, &rcasConstants.MvScaleX);
+                InParameters->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &rcasConstants.MvScaleY);
+
+                float nearPlane = 0.0f;
+                float farPlane = 0.0f;
+
+                if (InParameters->Get("DLSSG.CameraNear", &nearPlane) == NVSDK_NGX_Result_Success &&
+                    InParameters->Get("DLSSG.CameraFar", &farPlane) == NVSDK_NGX_Result_Success)
                 {
-                    Config::Instance()->RcasEnabled.set_volatile_value(false);
-                    return true;
-                }
-            }
-            else
-            {
-                if (!RCAS->Dispatch(Device, InDeviceContext, (ID3D11Texture2D*) setBuffer,
-                                    (ID3D11Texture2D*) paramMotion, rcasConstants, (ID3D11Texture2D*) paramOutput,
-                                    (ID3D11Texture2D*) paramDepth))
-                {
-                    Config::Instance()->RcasEnabled.set_volatile_value(false);
-                    return true;
-                }
-            }
-        }
-
-        // Downsampling
-        if (useSS)
-        {
-            LOG_DEBUG("downscaling output...");
-
-            if (!OutputScaler->Dispatch(Device, InDeviceContext, OutputScaler->Buffer(),
-                                        (ID3D11Texture2D*) paramOutput))
-            {
-                Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
-                State::Instance().changeBackend[Handle()->Id] = true;
-                return true;
-            }
-        }
-
-        // imgui
-        if (!Config::Instance()->OverlayMenu.value_or_default() && _frameCount > 30 && paramOutput != nullptr)
-        {
-            if (Imgui != nullptr && Imgui.get() != nullptr)
-            {
-                if (Imgui->IsHandleDifferent())
-                {
-                    Imgui.reset();
+                    rcasConstants.CameraNear = nearPlane;
+                    rcasConstants.CameraFar = farPlane;
                 }
                 else
-                    Imgui->Render(InDeviceContext, paramOutput);
+                {
+                    rcasConstants.CameraNear = Config::Instance()->FsrCameraNear.value_or_default();
+                    rcasConstants.CameraFar = Config::Instance()->FsrCameraFar.value_or_default();
+                }
+
+                if (useSS)
+                {
+                    if (!RCAS->Dispatch(Device, InDeviceContext, (ID3D11Texture2D*) setBuffer,
+                                        (ID3D11Texture2D*) paramMotion, rcasConstants, OutputScaler->Buffer(),
+                                        (ID3D11Texture2D*) paramDepth))
+                    {
+                        Config::Instance()->RcasEnabled.set_volatile_value(false);
+                        shadersOk = false;
+                    }
+                }
+                else
+                {
+                    if (!RCAS->Dispatch(Device, InDeviceContext, (ID3D11Texture2D*) setBuffer,
+                                        (ID3D11Texture2D*) paramMotion, rcasConstants, (ID3D11Texture2D*) paramOutput,
+                                        (ID3D11Texture2D*) paramDepth))
+                    {
+                        Config::Instance()->RcasEnabled.set_volatile_value(false);
+                        shadersOk = false;
+                    }
+                }
             }
-            else
+
+            // Downsampling
+            if (useSS && shadersOk)
             {
-                if (Imgui == nullptr || Imgui.get() == nullptr)
-                    Imgui = std::make_unique<Menu_Dx11>(Util::GetProcessWindow(), Device);
+                LOG_DEBUG("downscaling output...");
+
+                if (!OutputScaler->Dispatch(Device, InDeviceContext, OutputScaler->Buffer(),
+                                            (ID3D11Texture2D*) paramOutput))
+                {
+                    Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
+                    State::Instance().changeBackend[Handle()->Id] = true;
+                    shadersOk = false;
+                }
+            }
+
+            // imgui
+            if (shadersOk)
+            {
+                if (!Config::Instance()->OverlayMenu.value_or_default() && _frameCount > 30 && paramOutput != nullptr)
+                {
+                    if (Imgui != nullptr && Imgui.get() != nullptr)
+                    {
+                        if (Imgui->IsHandleDifferent())
+                        {
+                            Imgui.reset();
+                        }
+                        else
+                            Imgui->Render(InDeviceContext, paramOutput);
+                    }
+                    else
+                    {
+                        if (Imgui == nullptr || Imgui.get() == nullptr)
+                            Imgui = std::make_unique<Menu_Dx11>(Util::GetProcessWindow(), Device);
+                    }
+                }
+
+                // set original output texture back
+                InParameters->Set(NVSDK_NGX_Parameter_Output, paramOutput);
             }
         }
-
-        // set original output texture back
-        InParameters->Set(NVSDK_NGX_Parameter_Output, paramOutput);
 
         // restore compute shader resources
         for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
         {
-            InDeviceContext->CSSetShaderResources(i, 1, &restoreSRVs[i]);
+            auto raw = restoreSRVs[i].Get();
+            InDeviceContext->CSSetShaderResources(i, 1, &raw);
         }
 
         for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
         {
-            InDeviceContext->CSSetSamplers(i, 1, &restoreSamplerStates[i]);
+            auto raw = restoreSamplerStates[i].Get();
+            InDeviceContext->CSSetSamplers(i, 1, &raw);
         }
 
         for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
         {
-            InDeviceContext->CSSetConstantBuffers(i, 1, &restoreCBVs[i]);
+            auto raw = restoreCBVs[i].Get();
+            InDeviceContext->CSSetConstantBuffers(i, 1, &raw);
         }
 
         for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
         {
-            InDeviceContext->CSSetUnorderedAccessViews(i, 1, &restoreUAVs[i], 0);
+            auto raw = restoreUAVs[i].Get();
+            InDeviceContext->CSSetUnorderedAccessViews(i, 1, &raw, 0);
         }
 
-        InDeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, restoreDSV);
+        InDeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rawRTVs, restoreDSV.Get());
     }
     else
     {
@@ -330,7 +326,7 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
 
     _frameCount++;
 
-    return true;
+    return evalResult;
 }
 
 DLSSFeatureDx11::DLSSFeatureDx11(unsigned int InHandleId, NVSDK_NGX_Parameter* InParameters)
