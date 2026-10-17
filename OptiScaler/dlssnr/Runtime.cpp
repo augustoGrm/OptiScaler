@@ -132,7 +132,7 @@ Texture MakeTexture(ID3D12Device* device, unsigned w, unsigned h, DXGI_FORMAT fo
 
 struct Surfaces
 {
-    Texture proxy, original, small, scratch, scratch2, resolved;
+    Texture proxy, original, reducedProxy, scratch, scratch2, resolved;
     std::array<Texture, 3> answers;
     ComPtr<ID3D12Resource> constants;
     ComPtr<ID3D12DescriptorHeap> descriptors;
@@ -315,7 +315,7 @@ std::shared_ptr<Surfaces> Acquire(Session& s)
     auto& r = *surfaces;
     r.proxy = MakeTexture(s.device.Get(), s.width, s.height, DXGI_FORMAT_R16G16B16A16_FLOAT);
     r.original = MakeTexture(s.device.Get(), s.width, s.height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    r.small = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    r.reducedProxy = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
     r.scratch = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
     r.scratch2 = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
     r.resolved = MakeTexture(s.device.Get(), s.width, s.height, s.format);
@@ -528,9 +528,9 @@ void Process(const Frame& f, const Settings& value)
             down.Mode = DlssNrMode_Downsample;
             down.Width = s.workWidth;
             down.Height = s.workHeight;
-            Dispatch(s, r, f.commands, down, r.proxy.resource.Get(), nullptr, nullptr, nullptr, r.small);
-            To(f.commands, r.small, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            initial = &r.small;
+            Dispatch(s, r, f.commands, down, r.proxy.resource.Get(), nullptr, nullptr, nullptr, r.reducedProxy);
+            To(f.commands, r.reducedProxy, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            initial = &r.reducedProxy;
         }
         Texture* input = initial;
         for (unsigned pass = 0; pass < settings.passes; ++pass)

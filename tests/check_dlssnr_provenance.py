@@ -6,14 +6,18 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 manifest = json.loads((root / "OptiScaler/dlssnr/UPSTREAM.json").read_text())
+# Manifest hashes describe Git's LF text blobs, not a platform's CRLF checkout.
+def canonical_bytes(path):
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
 checked = 0
 for entry in manifest["unchanged_files"]:
-    actual = hashlib.sha256((root / entry["path"]).read_bytes()).hexdigest()
+    actual = hashlib.sha256(canonical_bytes(root / entry["path"])).hexdigest()
     assert actual == entry["sha256"], f"Imported file changed: {entry['path']}"
     checked += 1
 for name, entry in manifest["adapted_files"].items():
     if isinstance(entry, dict) and "local_sha256" in entry:
-        actual = hashlib.sha256((root / name).read_bytes()).hexdigest()
+        actual = hashlib.sha256(canonical_bytes(root / name)).hexdigest()
         assert actual == entry["local_sha256"], f"Formatted import changed: {name}"
         checked += 1
 header = (root / "OptiScaler/shaders/dlssnr/precompile/DlssNr_Shader.h").read_text()
