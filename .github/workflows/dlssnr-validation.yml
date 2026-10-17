@@ -23,14 +23,34 @@ jobs:
         with:
           submodules: recursive
       - uses: ilammy/msvc-dev-cmd@v1
+        id: toolchain
         with:
           arch: x64
       - name: Build the original solution and NR forwarder
         shell: pwsh
         run: |
-          msbuild OptiScaler.sln /m:4 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          msbuild OptiScaler.sln /m:4 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-build.log"
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            Get-Content "$env:RUNNER_TEMP/nr-build.log" | Where-Object { $_ -match 'error (C\d+|LNK\d+|MSB\d+)|fatal error|error:' } | Select-Object -Last 20 | ForEach-Object {
+              $message = $_.ToString().Replace('%', '%25')
+              Write-Output "::error title=MSBuild::$message"
+            }
+            exit $buildExit
+          }
           if (!(Test-Path 'x64/Release/a/nvngx.dll_dlssnr.dll')) { throw 'NR forwarder missing from package' }
       - name: Run portable and WARP checks
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         shell: pwsh
-        run: ./tests/run_dlssnr_windows.ps1
+        run: |
+          try {
+            ./tests/run_dlssnr_windows.ps1 *>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-tests.log"
+          } catch {
+            if (Test-Path "$env:RUNNER_TEMP/nr-tests.log") {
+              Get-Content "$env:RUNNER_TEMP/nr-tests.log" | Select-Object -Last 15 | ForEach-Object {
+                $message = $_.ToString().Replace('%', '%25')
+                Write-Output "::error title=NR validation::$message"
+              }
+            }
+            throw
+          }

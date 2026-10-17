@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Integration.h"
 #include "Runtime.h"
+#include <wrl/client.h>
 #include <Util.h>
 #include <proxies/NVNGX_Proxy.h>
 #include <upscalers/IFeature_Dx12.h>
