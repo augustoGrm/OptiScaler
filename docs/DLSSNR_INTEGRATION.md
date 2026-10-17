@@ -114,8 +114,13 @@ keeping the adapter independent from upstream hook internals.
 
 Model features and large textures consume VRAM, especially with multiple passes. Start with one pass
 at 1.0 work scale; lower the scale if allocation fails. Supported output formats are
-`R16G16B16A16_FLOAT`, `R32G32B32A32_FLOAT`, `R8G8B8A8_UNORM`, and `R10G10B10A2_UNORM`, single-sample,
-single-mip, single-layer 2D textures readable as shader resources. Other layouts/formats bypass NR.
+`R16G16B16A16_FLOAT`, `R32G32B32A32_FLOAT`, `R11G11B10_FLOAT`, `R16G16B16A16_UNORM`,
+`R8G8B8A8_UNORM`, and `R10G10B10A2_UNORM`, plus the corresponding RGBA `TYPELESS` families.
+Typeless RGBA16/32 uses FLOAT views; RGBA8/RGB10A2 uses UNORM views. The private final output is
+typed and copied back within the original format family. The device must support shader reads and
+typed UAV stores for that view. Only floating-point views select linear HDR when the game's HDR
+flag is set. Textures must be single-sample, single-mip, single-layer 2D and readable as shader
+resources. Other layouts/formats bypass NR; format rejections report the exact `DXGI_FORMAT` code.
 
 ## Configuration and installation
 
@@ -185,7 +190,9 @@ and a D3D12 WARP test of the production runtime plus
 submission adapter using a **synthetic backend** in a temporary directory. That last test checks
 edge coverage on non-workgroup-aligned dimensions, repeated frame/resource reuse, model invocation
 counts, a visible synthetic edit, resize, multipass at full/reduced scale, exact disabled/zero-work bypass, and missing-model
-fallback. It does not execute NVIDIA's model. Never package the fake test DLL. The GitHub Actions
+fallback. It also checks typed/typeless RGBA and packed R11G11B10 output readback, visible edits,
+an HDR value above 1, byte-exact disabled output and unsupported-format diagnostics. D3D12 debug-layer
+errors are checked when that layer is available. It does not execute NVIDIA's model. Never package the fake test DLL. The GitHub Actions
 workflow `Modular DLSS-NR validation` supplies Linux and full Windows build/test jobs, pinned to
 `windows-2022`. Its manual dispatch can select `windows-latest` to reproduce the WARP issue below.
 

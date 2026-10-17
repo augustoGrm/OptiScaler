@@ -5,6 +5,7 @@
 #include "../OptiScaler/dlssnr/Submission.h"
 #include "dlssnr_crash_report.h"
 #include <dxgi1_4.h>
+#include <d3d12sdklayers.h>
 #include <wrl/client.h>
 #include <cmath>
 #include <cstdio>
@@ -14,6 +15,8 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <array>
+#include <limits>
 
 using Microsoft::WRL::ComPtr;
 static void check(HRESULT hr)
@@ -35,6 +38,63 @@ static void barrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3
     cmd->ResourceBarrier(1, &b);
 }
 
+static float unsignedFloat(unsigned bits, unsigned mantissaBits)
+{
+    const auto exponent = bits >> mantissaBits;
+    const auto mantissa = bits & ((1u << mantissaBits) - 1);
+    if (exponent == 31)
+        return mantissa ? std::numeric_limits<float>::quiet_NaN() : std::numeric_limits<float>::infinity();
+    return exponent ? std::ldexp(1.0f + std::ldexp(static_cast<float>(mantissa), -static_cast<int>(mantissaBits)),
+                                 static_cast<int>(exponent) - 15)
+                    : std::ldexp(static_cast<float>(mantissa), 1 - 15 - static_cast<int>(mantissaBits));
+}
+
+struct ColourCase
+{
+    DXGI_FORMAT format;
+    std::vector<uint8_t> pixel;
+    unsigned componentBits; // 32 float, 16 half, 11 packed float, 8/10/64 UNORM
+    bool hdr = false;
+
+    std::array<float, 4> Read(const void* bytes) const
+    {
+        std::array<float, 4> colour {};
+        if (componentBits == 32)
+            std::memcpy(colour.data(), bytes, 16);
+        else if (componentBits == 16 || componentBits == 64)
+        {
+            uint16_t channels[4];
+            std::memcpy(channels, bytes, 8);
+            for (unsigned i = 0; i < 4; ++i)
+                colour[i] = componentBits == 64
+                                ? channels[i] / 65535.0f
+                                : unsignedFloat(channels[i] & 0x7fff, 10) * (channels[i] & 0x8000 ? -1.0f : 1.0f);
+        }
+        else if (componentBits == 8)
+            for (unsigned i = 0; i < 4; ++i)
+                colour[i] = static_cast<const uint8_t*>(bytes)[i] / 255.0f;
+        else
+        {
+            uint32_t packed;
+            std::memcpy(&packed, bytes, 4);
+            if (componentBits == 11)
+                colour = { unsignedFloat(packed & 2047, 6), unsignedFloat((packed >> 11) & 2047, 6),
+                           unsignedFloat(packed >> 22, 5), 1.0f };
+            else
+                colour = { (packed & 1023) / 1023.0f, ((packed >> 10) & 1023) / 1023.0f,
+                           ((packed >> 20) & 1023) / 1023.0f, (packed >> 30) / 3.0f };
+        }
+        return colour;
+    }
+};
+
+template <class T> static std::vector<uint8_t> Bytes(const T& value)
+{
+    const auto begin = reinterpret_cast<const uint8_t*>(&value);
+    return { begin, begin + sizeof(value) };
+}
+const ColourCase float32 { DXGI_FORMAT_R32G32B32A32_FLOAT, Bytes(std::array { 0.25f, 0.5f, 0.75f, 1.0f }), 32 };
+
 int main(int argc, char** argv)
 try
 {
@@ -48,9 +108,17 @@ try
     check(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));
     ComPtr<IDXGIAdapter> warp;
     check(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)));
+    ComPtr<ID3D12Debug> debug;
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+    {
+        debug->EnableDebugLayer();
+        std::fprintf(stderr, "NR_STAGE: D3D12 debug validation enabled\n");
+    }
     ComPtr<ID3D12Device> device;
     std::fprintf(stderr, "NR_STAGE: creating D3D12 WARP device\n");
     check(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
+    ComPtr<ID3D12InfoQueue> diagnostics;
+    device.As(&diagnostics);
     ComPtr<ID3D12CommandQueue> queue;
     D3D12_COMMAND_QUEUE_DESC queueDesc {};
     check(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)));
@@ -88,7 +156,7 @@ try
         return true;
     };
 
-    auto run = [&](unsigned width, unsigned height, bool exact, bool edited = false)
+    auto run = [&](unsigned width, unsigned height, bool exact, bool edited = false, const ColourCase& colour = float32)
     {
         check(allocator->Reset());
         check(commands->Reset(allocator.Get(), nullptr));
@@ -100,12 +168,14 @@ try
         desc.Height = height;
         desc.DepthOrArraySize = desc.MipLevels = 1;
         desc.SampleDesc.Count = 1;
-        desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        desc.Format = colour.format;
         desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         ComPtr<ID3D12Resource> output, motion;
         check(device->CreateCommittedResource(&gpu, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
                                               nullptr, IID_PPV_ARGS(&output)));
-        check(device->CreateCommittedResource(&gpu, D3D12_HEAP_FLAG_NONE, &desc,
+        auto motionDesc = desc;
+        motionDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        check(device->CreateCommittedResource(&gpu, D3D12_HEAP_FLAG_NONE, &motionDesc,
                                               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
                                               IID_PPV_ARGS(&motion)));
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint {};
@@ -128,11 +198,11 @@ try
         void* memory = nullptr;
         D3D12_RANGE noRead { 0, 0 };
         check(upload->Map(0, &noRead, &memory));
-        const float pixel[] = { 0.25f, 0.5f, 0.75f, 1.0f };
+        const auto pixel = colour.Read(colour.pixel.data());
         for (unsigned y = 0; y < height; ++y)
             for (unsigned x = 0; x < width; ++x)
-                std::memcpy(static_cast<char*>(memory) + y * footprint.Footprint.RowPitch + x * sizeof(pixel), pixel,
-                            sizeof(pixel));
+                std::memcpy(static_cast<char*>(memory) + y * footprint.Footprint.RowPitch + x * colour.pixel.size(),
+                            colour.pixel.data(), colour.pixel.size());
         upload->Unmap(0, nullptr);
         D3D12_TEXTURE_COPY_LOCATION from {}, to {};
         from.pResource = upload.Get();
@@ -146,7 +216,9 @@ try
         frame.motion = motion.Get();
         frame.renderWidth = width;
         frame.renderHeight = height;
-        std::fprintf(stderr, "NR_STAGE: runtime frame %ux%u enabled=%u\n", width, height, settings.enabled);
+        frame.hdr = colour.hdr;
+        std::fprintf(stderr, "NR_STAGE: runtime frame %ux%u enabled=%u DXGI_FORMAT=%u\n", width, height,
+                     settings.enabled, colour.format);
         DlssNr::Process(frame, settings);
         std::fprintf(stderr, "NR_STAGE: %s\n", DlssNr::GetStatus().c_str());
         barrier(commands.Get(), output.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -163,21 +235,38 @@ try
         for (unsigned y = 0; y < height; ++y)
             for (unsigned x = 0; x < width; ++x)
             {
-                auto actual = reinterpret_cast<const float*>(static_cast<const char*>(memory) +
-                                                             y * footprint.Footprint.RowPitch) +
-                              x * 4;
+                const auto bytes =
+                    static_cast<const uint8_t*>(memory) + y * footprint.Footprint.RowPitch + x * colour.pixel.size();
+                const auto actual = colour.Read(bytes);
                 if (exact)
-                    expect(std::memcmp(actual, pixel, sizeof(pixel)) == 0, "Bypass changed the original frame");
+                    expect(std::memcmp(bytes, colour.pixel.data(), colour.pixel.size()) == 0,
+                           "Bypass changed the original frame");
                 else if (edited)
                     expect(std::abs(actual[0] - pixel[0]) > 0.01f || std::abs(actual[1] - pixel[1]) > 0.01f ||
                                std::abs(actual[2] - pixel[2]) > 0.01f,
                            "Synthetic edit did not reach the output");
                 else
                     for (unsigned c = 0; c < 4; ++c)
-                        expect(std::isfinite(actual[c]) && std::abs(actual[c] - pixel[c]) < 0.005f,
+                        expect(std::isfinite(actual[c]) &&
+                                   std::abs(actual[c] - pixel[c]) < (colour.componentBits == 11 ? 0.02f : 0.005f),
                                "Identity model changed a pixel or left a dispatch edge unwritten");
             }
         readback->Unmap(0, &noRead);
+        if (diagnostics)
+        {
+            for (UINT64 i = 0; i < diagnostics->GetNumStoredMessages(); ++i)
+            {
+                SIZE_T length = 0;
+                check(diagnostics->GetMessage(i, nullptr, &length));
+                std::vector<uint8_t> storage(length);
+                auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+                check(diagnostics->GetMessage(i, message, &length));
+                if (message->Severity == D3D12_MESSAGE_SEVERITY_ERROR ||
+                    message->Severity == D3D12_MESSAGE_SEVERITY_CORRUPTION)
+                    throw std::runtime_error(message->pDescription);
+            }
+            diagnostics->ClearStoredMessages();
+        }
     };
 
     run(17, 19, true);
@@ -231,10 +320,49 @@ try
     DlssNr::Retry();
     run(23, 21, true);
     expect(evaluations() == 16, "Missing model did not bypass");
+
+    std::ofstream(directory / "nvngx_dlssnr.dll").put('\0');
+    DlssNr::Retry();
+    settings = {};
+    settings.enabled = true;
+    run(17, 19, true); // restore the one-pass/full-resolution model after debounce
+    std::this_thread::sleep_for(std::chrono::milliseconds(550));
+    const auto half = Bytes(std::array<uint16_t, 4> { 0x3400, 0x3800, 0x3a00, 0x3c00 });
+    const auto unorm16 = Bytes(std::array<uint16_t, 4> { 16384, 32768, 49151, 65535 });
+    const auto unorm8 = Bytes(std::array<uint8_t, 4> { 64, 128, 192, 255 });
+    const auto unorm10 = Bytes(uint32_t { 256u | (512u << 10) | (767u << 20) | (3u << 30) });
+    const auto packedFloat = Bytes(uint32_t { (13u << 6) | ((14u << 6) << 11) | (((14u << 5) | 16u) << 22) });
+    const auto packedHdr = Bytes(uint32_t { (16u << 6) | ((14u << 6) << 11) | (((14u << 5) | 16u) << 22) });
+    for (const auto& colour : std::vector<ColourCase> { { DXGI_FORMAT_R32G32B32A32_TYPELESS, float32.pixel, 32 },
+                                                        { DXGI_FORMAT_R16G16B16A16_FLOAT, half, 16 },
+                                                        { DXGI_FORMAT_R16G16B16A16_TYPELESS, half, 16 },
+                                                        { DXGI_FORMAT_R16G16B16A16_UNORM, unorm16, 64 },
+                                                        { DXGI_FORMAT_R8G8B8A8_UNORM, unorm8, 8 },
+                                                        { DXGI_FORMAT_R8G8B8A8_TYPELESS, unorm8, 8 },
+                                                        { DXGI_FORMAT_R10G10B10A2_UNORM, unorm10, 10 },
+                                                        { DXGI_FORMAT_R10G10B10A2_TYPELESS, unorm10, 10 },
+                                                        { DXGI_FORMAT_R11G11B10_FLOAT, packedFloat, 11 },
+                                                        { DXGI_FORMAT_R11G11B10_FLOAT, packedHdr, 11, true } })
+    {
+        settings.enabled = false;
+        run(17, 19, true, false, colour);
+        settings.enabled = true;
+        const auto before = evaluations();
+        run(17, 19, false, false, colour);
+        expect(evaluations() == before + 1, "Supported colour format bypassed the model");
+        edit(1);
+        run(17, 19, false, true, colour);
+        expect(evaluations() == before + 2, "Edited colour format bypassed the model");
+        edit(0);
+    }
+    const auto beforeUnsupported = evaluations();
+    run(17, 19, true, false, { DXGI_FORMAT_R8G8B8A8_UINT, unorm8, 8 });
+    expect(evaluations() == beforeUnsupported && DlssNr::GetStatus().find("DXGI_FORMAT=30") != std::string::npos,
+           "Unsupported format did not preserve the frame and report its exact DXGI code");
     DlssNr::ReleaseAll();
     CloseHandle(completed);
-    std::puts("PASS: WARP recording/readback, identity composition, edge coverage, reuse, resize, disable and "
-              "missing-model bypass (synthetic backend)");
+    std::puts("PASS: WARP recording/readback, composition, edge coverage, reuse, resize, disable, missing-model "
+              "bypass and typed/typeless/packed colour formats (synthetic backend)");
     return 0;
 }
 catch (const std::exception& e)

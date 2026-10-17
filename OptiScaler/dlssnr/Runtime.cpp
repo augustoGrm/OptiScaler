@@ -25,6 +25,37 @@ void Check(HRESULT result)
                                  ")");
 }
 
+// Match the base shader chain's FLOAT/UNORM interpretation of typeless colour families.
+// Keep integer/depth/sRGB resources out: the shared shader expects float colour values.
+DXGI_FORMAT ColourViewFormat(DXGI_FORMAT format)
+{
+    switch (format)
+    {
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+        return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+        return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+        return DXGI_FORMAT_R10G10B10A2_UNORM;
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+        return format;
+    default:
+        return DXGI_FORMAT_UNKNOWN;
+    }
+}
+
+std::string FormatDiagnostic(DXGI_FORMAT format)
+{
+    return "DXGI_FORMAT=" + std::to_string(static_cast<unsigned>(format));
+}
+
 struct Backend
 {
     HMODULE library = nullptr;
@@ -145,6 +176,7 @@ struct Session
     Settings tuning;
     unsigned width = 0, height = 0, workWidth = 0, workHeight = 0;
     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT viewFormat = DXGI_FORMAT_UNKNOWN;
     ComPtr<ID3D12Device> device;
     ComPtr<ID3D12RootSignature> root;
     ComPtr<ID3D12PipelineState> pipeline;
@@ -221,6 +253,13 @@ std::shared_ptr<Session> CreateSession(const Frame& frame, const Settings& setti
     s.workWidth = std::max(1u, static_cast<unsigned>(s.width * settings.scale));
     s.workHeight = std::max(1u, static_cast<unsigned>(s.height * settings.scale));
     s.format = desc.Format;
+    s.viewFormat = ColourViewFormat(s.format);
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support { s.viewFormat };
+    Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
+    const auto required = D3D12_FORMAT_SUPPORT1_TEXTURE2D | D3D12_FORMAT_SUPPORT1_SHADER_LOAD |
+                          D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW;
+    if ((support.Support1 & required) != required || !(support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
+        throw std::runtime_error("GPU cannot read/store the NR colour view (" + FormatDiagnostic(s.format) + ")");
 
     D3D12_DESCRIPTOR_RANGE ranges[3] = { { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0, 0 },
                                          { D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 2, 0, 0, 0 },
@@ -318,7 +357,8 @@ std::shared_ptr<Surfaces> Acquire(Session& s)
     r.reducedProxy = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
     r.scratch = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
     r.scratch2 = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
-    r.resolved = MakeTexture(s.device.Get(), s.width, s.height, s.format);
+    // A typed sibling can be copied into the original typeless resource without changing its layout.
+    r.resolved = MakeTexture(s.device.Get(), s.width, s.height, s.viewFormat);
     for (unsigned i = 0; i < s.tuning.passes; ++i)
         r.answers[i] = MakeTexture(s.device.Get(), s.workWidth, s.workHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
     D3D12_DESCRIPTOR_HEAP_DESC heap {};
@@ -367,6 +407,8 @@ void Dispatch(Session& s, Surfaces& r, ID3D12GraphicsCommandList* cmd, const Dls
     {
         D3D12_SHADER_RESOURCE_VIEW_DESC view {};
         view.Format = srvs[i] ? srvs[i]->GetDesc().Format : DXGI_FORMAT_R16G16B16A16_FLOAT;
+        if (srvs[i] == source && ColourViewFormat(view.Format) != DXGI_FORMAT_UNKNOWN)
+            view.Format = ColourViewFormat(view.Format);
         view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         view.Texture2D.MipLevels = 1;
@@ -444,10 +486,9 @@ void Process(const Frame& f, const Settings& value)
             desc.SampleDesc.Count != 1 || desc.Width > 16384 || !desc.Width || !desc.Height ||
             (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
             throw std::runtime_error("Unsupported output texture layout; original rendering retained");
-        // The shader reads/writes float4. Integer, depth, typeless and sRGB-resource UAVs are not compatible.
-        if (desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT && desc.Format != DXGI_FORMAT_R32G32B32A32_FLOAT &&
-            desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format != DXGI_FORMAT_R10G10B10A2_UNORM)
-            throw std::runtime_error("Unsupported output colour format; original rendering retained");
+        if (ColourViewFormat(desc.Format) == DXGI_FORMAT_UNKNOWN)
+            throw std::runtime_error("Unsupported output colour format (" + FormatDiagnostic(desc.Format) +
+                                     "); original rendering retained");
         ComPtr<ID3D12Device> device;
         Check(f.commands->GetDevice(IID_PPV_ARGS(&device)));
         auto& active = state.sessions[f.handle];
@@ -503,8 +544,9 @@ void Process(const Frame& f, const Settings& value)
         constants.PreExposure = f.preExposure;
         constants.ExposureTrim = 1;
         constants.ExposureBaseScale = 1;
-        const bool floatColour =
-            desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || desc.Format == DXGI_FORMAT_R32G32B32A32_FLOAT;
+        const bool floatColour = s.viewFormat == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+                                 s.viewFormat == DXGI_FORMAT_R32G32B32A32_FLOAT ||
+                                 s.viewFormat == DXGI_FORMAT_R11G11B10_FLOAT;
         const auto encoding = DlssNrColourEncoding::Resolve(settings.colourEncoding, f.hdr, floatColour);
         constants.Passthrough = encoding.LinearHdr() ? 0 : 1;
         constants.InputEncoding = static_cast<uint32_t>(encoding.encoding);
