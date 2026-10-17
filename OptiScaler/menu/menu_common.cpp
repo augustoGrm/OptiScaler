@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "menu_common.h"
+#include <dlssnr/Settings.h>
 #include <inputs/FG/XeFG_Inputs_Dx12.h>
 
 #include "input/input_system.h"
@@ -8732,6 +8733,8 @@ void MenuCommon::RenderMainMenuTabs(RenderMenuContext& ctx)
     static const Tab tabs[] = {
         { "MAIN", "Custom", "Boxes picked in Menu > Custom Tab.", RenderCustomTab },
         { "MAIN", "Upscaling", "Backend, sharpness and output scaling.", RenderUpscalerStateMessage },
+        { "MAIN", "Neural Rendering", "Optional DX12 processing after the upscaler.",
+          [](RenderMenuContext&) { DlssNr::RenderMenu(); } },
         { "MAIN", "Frame Gen", "Frame generation source, output and pacing." },
         { "MAIN", "Latency & FPS", "Frame limiter, low latency and V-Sync." },
         { "SYSTEM", "Textures", "Mipmap bias and anisotropic filtering." },

@@ -8,6 +8,7 @@
 #include <misc/IdentifyGpu.h>
 
 #include <SimpleIni.h>
+#include <dlssnr/SettingsIni.h>
 
 static CSimpleIniA ini;
 
@@ -52,6 +53,7 @@ bool Config::Reload(std::filesystem::path iniPath)
     LOG_INFO("Trying to load ini from: {0}", wstring_to_string(pathWStr));
     if (ini.LoadFile(iniPath.c_str()) == SI_OK)
     {
+        DlssNr::SetSettings(DlssNr::ReadSettings(ini));
         State::Instance().nvngxIniDetected = exists(iniPath.parent_path() / "nvngx.ini");
         _log.clear();
 
@@ -873,6 +875,7 @@ std::string GetFloatValue(std::optional<float> value)
 
 bool Config::SaveIni()
 {
+    DlssNr::WriteSettings(ini, DlssNr::GetSettings());
     // Upscalers
     {
         auto SaveUpscaler = [&](const char* key, auto& upscalerSetting)

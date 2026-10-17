@@ -6,7 +6,8 @@
     <ClCompile Include="dlssnr\Runtime.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="dlssnr\Submission.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="dlssnr\Settings.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
-    <ClInclude Include="dlssnr\Integration.h;dlssnr\Runtime.h;dlssnr\Settings.h;dlssnr\Submission.h" />
+    <ClCompile Include="dlssnr\Menu.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClInclude Include="dlssnr\Integration.h;dlssnr\Runtime.h;dlssnr\Settings.h;dlssnr\SettingsIni.h;dlssnr\Submission.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_Common.h;shaders\dlssnr\DlssNr_ColourEncoding.h;shaders\dlssnr\DlssNr_Guides.h;shaders\dlssnr\precompile\DlssNr_Shader.h" />
     <None Include="shaders\dlssnr\precompile\*.hlsl;shaders\dlssnr\precompile\*.hlsli" />
     <ProjectReference Include="dlssnr\forwarder\dlssnr_forwarder.vcxproj">
