@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- All NR build membership stays here; the original project needs one import. -->
+  <ItemGroup>
+    <ClCompile Include="dlssnr\Integration.cpp" />
+    <ClCompile Include="dlssnr\Runtime.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="dlssnr\Submission.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="dlssnr\Settings.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClInclude Include="dlssnr\Integration.h;dlssnr\Runtime.h;dlssnr\Settings.h;dlssnr\Submission.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Common.h;shaders\dlssnr\DlssNr_ColourEncoding.h;shaders\dlssnr\DlssNr_Guides.h;shaders\dlssnr\precompile\DlssNr_Shader.h" />
+    <None Include="shaders\dlssnr\precompile\*.hlsl;shaders\dlssnr\precompile\*.hlsli" />
+    <ProjectReference Include="dlssnr\forwarder\dlssnr_forwarder.vcxproj">
+      <Project>{7c1f3b2e-5d44-4a9b-9c1e-2f6a8d0b4e71}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

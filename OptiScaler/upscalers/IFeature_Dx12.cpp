@@ -1,6 +1,7 @@
 #include <pch.h>
 
 #include <functional>
+#include <dlssnr/Integration.h>
 #include <vector>
 
 #include "IFeature_Dx12.h"
@@ -259,6 +260,9 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
             }
         }
     }
+
+    // Optional NR, inside the caller's compute-state envelope and before the overlay.
+    DlssNr::AfterUpscale(InCommandList, InParameters, this, paramOutput);
 
     // imgui
     if (!Config::Instance()->OverlayMenu.value_or_default() && _frameCount > 30)

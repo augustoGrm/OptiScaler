@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Util.h"
+#include <dlssnr/Integration.h>
 #include "Config.h"
 
 #include "NVNGX_DLSS.h"
@@ -369,6 +370,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_with_ProjectID(
 
 NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Shutdown(void)
 {
+    DlssNr::ReleaseAll();
     shutdown = true;
     State::Instance().nvngxDx12Inited = false;
 
@@ -821,6 +823,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
         return NVSDK_NGX_Result_Success;
 
     auto handleId = InHandle->Id;
+    DlssNr::Release(handleId);
 
     // Clean up framegen
     if (State::Instance().currentFG != nullptr && State::Instance().activeFgInput == FGInput::Upscaler)
