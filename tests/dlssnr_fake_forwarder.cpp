@@ -8,9 +8,11 @@
 namespace
 {
 std::atomic<int> evaluations { 0 }, liveFeatures { 0 };
-std::atomic<bool> applyEdit { false };
+std::atomic<int> editMode { 0 };
+std::atomic<bool> nextIsFirst { false };
 struct Feature
 {
+    bool first = false;
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> heap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> cpuHeap;
@@ -28,7 +30,12 @@ extern "C"
 {
     __declspec(dllexport) int nr_test_evaluations() { return evaluations; }
     __declspec(dllexport) int nr_test_live_features() { return liveFeatures; }
-    __declspec(dllexport) void nr_test_edit(int enabled) { applyEdit = enabled != 0; }
+    __declspec(dllexport) void nr_test_edit(int mode)
+    {
+        editMode = mode;
+        if (mode == 2)
+            nextIsFirst = true;
+    }
     __declspec(dllexport) void dlssnr_call_set_float_slot(int) {}
     __declspec(dllexport) void dlssnr_call_probe_float(void* p, const char*, float value, int slot)
     {
@@ -45,6 +52,7 @@ extern "C"
                                                    int, float, float, float, int, int)
     {
         auto feature = new Feature;
+        feature->first = nextIsFirst.exchange(false);
         feature->device = device;
         D3D12_DESCRIPTOR_HEAP_DESC heap {};
         heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -76,9 +84,9 @@ extern "C"
                                                       int, float, int, float, float, float, int, float, float)
     {
         ++evaluations;
-        if (applyEdit)
+        auto* feature = static_cast<Feature*>(handle);
+        if (editMode == 1 || (editMode == 2 && feature->first))
         {
-            auto* feature = static_cast<Feature*>(handle);
             D3D12_UNORDERED_ACCESS_VIEW_DESC view {};
             view.Format = output->GetDesc().Format;
             view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;

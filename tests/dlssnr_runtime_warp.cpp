@@ -202,22 +202,30 @@ try
     expect(evaluations() == 7 && features() == 0, "Zero strength did not bypass NR exactly");
     settings.strength = 1;
     settings.passes = 3;
+    // Only the first model edits; the later models copy their inputs. The edit can reach the
+    // final output only if the host binds raw/proxy correctly at each multipass boundary.
+    edit(2);
     run(23, 21, true); // the debounce bypasses while the model settings settle
     std::this_thread::sleep_for(std::chrono::milliseconds(550));
-    run(23, 21, false);
+    run(23, 21, false, true);
     expect(evaluations() == 10, "The three-pass stack did not execute every model");
+    settings.feedback = 0;
+    run(23, 21, false);
+    expect(evaluations() == 13, "Zero feedback did not execute all passes");
+    settings.feedback = 1;
+    edit(0);
     settings.scale = 0.5f;
     run(23, 21, true);
     std::this_thread::sleep_for(std::chrono::milliseconds(550));
     run(23, 21, false);
-    expect(evaluations() == 13, "Reduced-resolution multipass did not execute");
+    expect(evaluations() == 16, "Reduced-resolution multipass did not execute");
     settings.enabled = false;
     run(23, 21, true);
     std::filesystem::remove(directory / "nvngx_dlssnr.dll");
     settings.enabled = true;
     DlssNr::Retry();
     run(23, 21, true);
-    expect(evaluations() == 13, "Missing model did not bypass");
+    expect(evaluations() == 16, "Missing model did not bypass");
     DlssNr::ReleaseAll();
     CloseHandle(completed);
     std::puts("PASS: WARP recording/readback, identity composition, edge coverage, reuse, resize, disable and "

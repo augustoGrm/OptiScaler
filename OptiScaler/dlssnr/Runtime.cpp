@@ -556,7 +556,8 @@ void Process(const Frame& f, const Settings& value)
                 clamp.Mode = DlssNrMode_ClampProxy;
                 clamp.Width = s.workWidth;
                 clamp.Height = s.workHeight;
-                Dispatch(s, r, f.commands, clamp, input->resource.Get(), r.answers[pass].resource.Get(), nullptr,
+                // Clamp mode reads the raw answer at t0 and this pass's own input proxy at t1.
+                Dispatch(s, r, f.commands, clamp, r.answers[pass].resource.Get(), input->resource.Get(), nullptr,
                          nullptr, next);
                 To(f.commands, next, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 input = &next;
