@@ -1,0 +1,64 @@
+{
+  "repository": "https://github.com/janblade/OptiScaler-F5-DLSSNR-Multipass",
+  "tag": "v0.1.31",
+  "commit": "5d5cdccdbe671ab222d5e29fc7663e5115bc5d9b",
+  "unchanged_files": [
+    {
+      "path": "OptiScaler/shaders/dlssnr/precompile/dlssnr_replace_curve.hlsli",
+      "sha256": "4b981d83f2b02bf638d9177baf0d30fd2f1227d2276de41e9e50029233b566e3"
+    },
+    {
+      "path": "OptiScaler/shaders/dlssnr/precompile/dlssnr_pq.hlsli",
+      "sha256": "ac26b8413dc2c7f7beed9f4b0d35f473564df04a416812e9b20c3677ee4e717f"
+    },
+    {
+      "path": "OptiScaler/shaders/dlssnr/precompile/dlssnr_whitepoint.hlsli",
+      "sha256": "9b305e1f4401c54049e8784094e7a46c54751bbd69e7e2b1a871454f3e0a3ecb"
+    },
+    {
+      "path": "OptiScaler/shaders/dlssnr/precompile/dlssnr.hlsl",
+      "sha256": "e65ff3025265a34f57d045cf6f72dd06af3314cdf5e96ac7c3815cc89c739e02"
+    },
+    {
+      "path": "Licenses/RenoDX_ATTRIBUTION.txt",
+      "sha256": "40db841188178fa6871e4b435f1cf25cf46a7b52070f973cbbbc999ec020d7f2"
+    },
+    {
+      "path": "tests/nr_guides_smoke.cpp",
+      "sha256": "1041e2e91b2af3edb9d44673b156d1614225a01e3c4574f16d58ebf824959efc"
+    },
+    {
+      "path": "tests/nr_colour_encoding_smoke.cpp",
+      "sha256": "23df7b27b3cb43c8fa7dbbe9df8250a44d1b4a2ee0d8906bf187f6a2e4e135ee"
+    },
+    {
+      "path": "tests/nr_multipass_feedback_smoke.cpp",
+      "sha256": "a00024b83ced2517ab2ce38433de7df92f1f625b545af1b2b7583d49020efcea"
+    }
+  ],
+  "adapted_files": {
+    "OptiScaler/dlssnr/forwarder/dlssnr_forwarder.cpp": "DX12-only extraction: kept helpers, caller-frame shim and create/evaluate/release/extras ABI; removed D3D11, Vulkan and scaling-ratio probes.",
+    "OptiScaler/dlssnr/forwarder/dlssnr_forwarder.vcxproj": "Added ReleaseDebug configuration and output paths matching the base project.",
+    "OptiScaler/shaders/dlssnr/DlssNr_Common.h": {
+      "change": "clang-format 20.1.8 formatting only",
+      "upstream_sha256": "5cda440f12849502a2ceb74a7967311560e02d73729674a058008cd7da1ca81d",
+      "local_sha256": "ba9b94a2cfc60c8ea7a540cfa54a09dafe16d847a692fef8a379e65385c9b5e7"
+    },
+    "OptiScaler/shaders/dlssnr/DlssNr_Guides.h": {
+      "change": "clang-format 20.1.8 formatting only",
+      "upstream_sha256": "3c40fa9b78b3a0b6ca9effbd503ea5e15216579bbacc1d7ff87bbf1f2139deb7",
+      "local_sha256": "ec6837c9e2840736001923abfcb90ae7a6a3b0ea01fef8b5d93e699971b7b1e4"
+    },
+    "OptiScaler/shaders/dlssnr/DlssNr_ColourEncoding.h": {
+      "change": "clang-format 20.1.8 formatting only",
+      "upstream_sha256": "e0083dda52bf28f68ff552a97e9af074a7d3845378e22f25af822a8e7127166a",
+      "local_sha256": "3a3a5e8b613af1c03295eeef3069699f7d687957f37c975d71e11bcde73df232"
+    },
+    "OptiScaler/shaders/dlssnr/precompile/DlssNr_Shader.h": {
+      "change": "clang-format 20.1.8 formatting only",
+      "upstream_sha256": "5ba08ef194cb4b01e33b3aafe58f84998b3da4e5271540b134ba34639b9657ea",
+      "local_sha256": "39fad952dd3e79e6d6f922191dec0f6f39e3de6b034a292cfa494735a598479d"
+    }
+  },
+  "shader_bytecode_sha256": "223d5aaee8f4c11507a010e3854bd7304f11fbe7a9d9d03a8eb9096ac321b1df"
+}

@@ -1,0 +1,36 @@
+name: Modular DLSS-NR validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/modular-dlssnr]
+  pull_request:
+    branches: [master]
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init --depth 1 external/simpleini
+      - run: bash tests/run_dlssnr_host.sh
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build the original solution and NR forwarder
+        shell: pwsh
+        run: |
+          msbuild OptiScaler.sln /m:4 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path 'x64/Release/a/nvngx.dll_dlssnr.dll')) { throw 'NR forwarder missing from package' }
+      - name: Run portable and WARP checks
+        shell: pwsh
+        run: ./tests/run_dlssnr_windows.ps1
