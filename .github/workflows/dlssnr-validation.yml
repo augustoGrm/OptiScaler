@@ -57,7 +57,7 @@ jobs:
             $failure = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=NR runner failure::$failure"
             if (Test-Path "$env:RUNNER_TEMP/nr-tests.log") {
-              Get-Content "$env:RUNNER_TEMP/nr-tests.log" | Select-Object -Last 15 | ForEach-Object {
+              Get-Content "$env:RUNNER_TEMP/nr-tests.log" | Where-Object { $_ -match 'NR_STAGE:|NR_CRASH:|FAILED:|FAIL:|PASS:' } | ForEach-Object {
                 $message = $_.ToString().Replace('%', '%25')
                 Write-Output "::error title=NR validation::$message"
               }
