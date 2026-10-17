@@ -16,4 +16,11 @@
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
   </ItemGroup>
+  <Target Name="CopyDlssNrAttribution" AfterTargets="Build">
+    <PropertyGroup>
+      <DlssNrLicenseDirectory>$(OutDir)Licenses\</DlssNrLicenseDirectory>
+      <DlssNrLicenseDirectory Condition="'$(Configuration)'=='Release'">$(SolutionDir)x64\Release\a\Licenses\</DlssNrLicenseDirectory>
+    </PropertyGroup>
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\Licenses\RenoDX_ATTRIBUTION.txt" DestinationFolder="$(DlssNrLicenseDirectory)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -43,6 +43,10 @@ jobs:
             Write-Output '::error title=NR package::NR forwarder missing from x64/Release/a'
             throw 'NR forwarder missing from package'
           }
+          if (!(Test-Path 'x64/Release/a/Licenses/RenoDX_ATTRIBUTION.txt')) {
+            Write-Output '::error title=NR package::NR shader license missing from package'
+            throw 'NR shader license missing from package'
+          }
       - name: Run portable and WARP checks
         if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         shell: pwsh

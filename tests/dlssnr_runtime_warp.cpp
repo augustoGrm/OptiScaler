@@ -3,6 +3,7 @@
 #define NOMINMAX
 #include "../OptiScaler/dlssnr/Runtime.h"
 #include "../OptiScaler/dlssnr/Submission.h"
+#include "dlssnr_crash_report.h"
 #include <dxgi1_4.h>
 #include <wrl/client.h>
 #include <cmath>
@@ -37,6 +38,8 @@ static void barrier(ID3D12GraphicsCommandList* cmd, ID3D12Resource* resource, D3
 int main(int argc, char** argv)
 try
 {
+    InstallNrCrashReport();
+    std::fprintf(stderr, "NR_STAGE: production D3D12 runtime test\n");
     expect(argc == 2, "Pass a temporary directory containing the test forwarder");
     const auto directory = std::filesystem::absolute(argv[1]);
     // Only the fake forwarder uses this empty placeholder; no proprietary runtime is downloaded.

@@ -27,15 +27,24 @@ try {
         Invoke-Checked 'cl' ($common + $sources + @("/Fo$BuildDirectory/", "/Fe$BuildDirectory/$name.exe"))
         Invoke-Checked "$BuildDirectory/$name.exe" @()
     }
-    Invoke-Checked 'cl' ($common + @('tests/nr_multipass_feedback_smoke.cpp', "/Fo$BuildDirectory/", "/Fe$BuildDirectory/feedback.exe", '/link', 'd3d11.lib', 'd3dcompiler.lib'))
-    Invoke-Checked "$BuildDirectory/feedback.exe" @('OptiScaler/shaders/dlssnr/precompile/dlssnr.hlsl')
-
     # This DLL belongs only in this temporary test directory. It is an identity model, not NVIDIA code.
     Invoke-Checked 'cl' ($common + @('/LD', 'tests/dlssnr_fake_forwarder.cpp', "/Fo$BuildDirectory/", "/Fe$BuildDirectory/nvngx.dll_dlssnr.dll"))
     Invoke-Checked 'cl' ($common + @('tests/dlssnr_runtime_warp.cpp', 'OptiScaler/dlssnr/Runtime.cpp',
         'OptiScaler/dlssnr/Submission.cpp', 'OptiScaler/dlssnr/Settings.cpp', "/Fo$BuildDirectory/", "/Fe$BuildDirectory/runtime.exe",
         '/link', 'd3d12.lib', 'dxgi.lib', 'dxguid.lib', '/LIBPATH:OptiScaler/library/detours', 'detours.lib'))
-    Invoke-Checked "$BuildDirectory/runtime.exe" @($BuildDirectory)
+    $failures = @()
+    try { Invoke-Checked "$BuildDirectory/runtime.exe" @($BuildDirectory) }
+    catch { $failures += $_.Exception.Message; Write-Host "FAILED: $_" }
+    # Exercise the actual published bytecode and the source-compiled version independently.
+    foreach ($variant in @('published', 'source')) {
+        try {
+            $defines = @()
+            if ($variant -eq 'published') { $defines += '/DNR_SHADER_BYTES' }
+            Invoke-Checked 'cl' ($common + $defines + @('tests/nr_multipass_feedback_smoke.cpp', "/Fo$BuildDirectory/", "/Fe$BuildDirectory/feedback-$variant.exe", '/link', 'd3d11.lib', 'd3dcompiler.lib'))
+            Invoke-Checked "$BuildDirectory/feedback-$variant.exe" @('OptiScaler/shaders/dlssnr/precompile/dlssnr.hlsl')
+        } catch { $failures += $_.Exception.Message; Write-Host "FAILED: $_" }
+    }
+    if ($failures.Count) { throw ($failures -join '; ') }
     Write-Host "PASS: portable tests, HLSL feedback and D3D12 runtime using a synthetic backend. Logs/artifacts: $BuildDirectory"
 } finally {
     Pop-Location

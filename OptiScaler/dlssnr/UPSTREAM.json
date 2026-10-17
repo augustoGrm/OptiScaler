@@ -30,10 +30,6 @@
     {
       "path": "tests/nr_colour_encoding_smoke.cpp",
       "sha256": "23df7b27b3cb43c8fa7dbbe9df8250a44d1b4a2ee0d8906bf187f6a2e4e135ee"
-    },
-    {
-      "path": "tests/nr_multipass_feedback_smoke.cpp",
-      "sha256": "a00024b83ced2517ab2ce38433de7df92f1f625b545af1b2b7583d49020efcea"
     }
   ],
   "adapted_files": {
@@ -58,6 +54,11 @@
       "change": "clang-format 20.1.8 formatting only",
       "upstream_sha256": "5ba08ef194cb4b01e33b3aafe58f84998b3da4e5271540b134ba34639b9657ea",
       "local_sha256": "39fad952dd3e79e6d6f922191dec0f6f39e3de6b034a292cfa494735a598479d"
+    },
+    "tests/nr_multipass_feedback_smoke.cpp": {
+      "change": "Added native crash diagnostics and a published-bytecode test variant; all eight feedback cases and reference assertions retained.",
+      "upstream_sha256": "a00024b83ced2517ab2ce38433de7df92f1f625b545af1b2b7583d49020efcea",
+      "local_sha256": "096237a79756c03dd5059ea8a5136cec18c2f6dbd80e7bb66c7b6623b8d579cd"
     }
   },
   "shader_bytecode_sha256": "223d5aaee8f4c11507a010e3854bd7304f11fbe7a9d9d03a8eb9096ac321b1df"

@@ -15,6 +15,10 @@
 #include <limits>
 #include <stdexcept>
 #include "../OptiScaler/shaders/dlssnr/DlssNr_Common.h"
+#include "dlssnr_crash_report.h"
+#ifdef NR_SHADER_BYTES
+#include "../OptiScaler/shaders/dlssnr/precompile/DlssNr_Shader.h"
+#endif
 using Microsoft::WRL::ComPtr;
 struct Pixel { float r, g, b, a; };
 static void check(HRESULT hr) { if (FAILED(hr)) throw std::runtime_error("D3D call failed"); }
@@ -51,16 +55,31 @@ static Pixel dampedReference(Pixel P, Pixel T, float feedback) {
             sp[2] + feedback * (restored.b - sp[2]), restored.a};
 }
 int wmain(int argc, wchar_t** argv) try {
+    InstallNrCrashReport();
     if (argc != 2) throw std::runtime_error("Pass the dlssnr.hlsl path");
+    const void* shaderBytes;
+    size_t shaderSize;
+#ifdef NR_SHADER_BYTES
+    std::fprintf(stderr, "NR_STAGE: published v0.1.31 shader bytes\n");
+    shaderBytes = DlssNr_cso;
+    shaderSize = sizeof(DlssNr_cso);
+#else
+    std::fprintf(stderr, "NR_STAGE: compiling feedback HLSL\n");
     ComPtr<ID3DBlob> code, errors;
     HRESULT compiled = D3DCompileFromFile(argv[1], nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "CSMain", "cs_5_0",
                                           D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
     if (errors) std::fprintf(stderr, "%s", (char*)errors->GetBufferPointer());
     check(compiled);
+    shaderBytes = code->GetBufferPointer();
+    shaderSize = code->GetBufferSize();
+#endif
+    std::fprintf(stderr, "NR_STAGE: creating D3D11 WARP device\n");
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> ctx;
     check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, nullptr, &ctx));
     ComPtr<ID3D11ComputeShader> shader;
-    check(device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &shader));
+    std::fprintf(stderr, "NR_STAGE: creating D3D11 compute shader\n");
+    check(device->CreateComputeShader(shaderBytes, shaderSize, nullptr, &shader));
+    std::fprintf(stderr, "NR_STAGE: D3D11 shader ready\n");
 
     // Same 8 cases as the interpass-clamp smoke test (case 0: raw already valid, a real
     // non-overshooting edit -- the common case; cases 1-4: various overshoots; 5-6: NaN/Inf;
@@ -107,6 +126,7 @@ int wmain(int argc, wchar_t** argv) try {
     ctx->CSSetSamplers(0, 1, sampler.GetAddressOf());
 
     auto runAt = [&](float feedback) {
+        std::fprintf(stderr, "NR_STAGE: dispatch feedback=%g\n", feedback);
         DlssNrConstants settings {}; settings.Mode = DlssNrMode_ClampProxy; settings.Width = N; settings.Height = 1;
         settings.WhitePoint = 1; settings.Passthrough = 0; settings.PassFeedback = feedback;
         ctx->UpdateSubresource(constants.Get(), 0, nullptr, &settings, 0, 0); ctx->Dispatch(1, 1, 1);
