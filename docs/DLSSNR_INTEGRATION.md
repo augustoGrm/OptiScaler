@@ -119,6 +119,22 @@ single-mip, single-layer 2D textures readable as shader resources. Other layouts
 
 ## Configuration and installation
 
+### Download a compiled Windows package
+
+Open [Modular DLSS-NR validation](https://github.com/augustoGrm/OptiScaler/actions/workflows/dlssnr-validation.yml),
+choose a successful run for `feature/modular-dlssnr`, and download
+**OptiScaler-DLSSNR-v0.1.31-windows-x64** from **Artifacts** at the bottom of the run page.
+GitHub requires signing in to download artifacts. Packages expire after 14 days; a new push or
+manual workflow run rebuilds them. These are test builds from this branch, not a stable release.
+
+Extract the entire ZIP. It contains the compiled `OptiScaler.dll`, `nvngx.dll_dlssnr.dll`, base
+dependencies/configuration/setup scripts, and licences. Install the extracted files using the
+normal OptiScaler procedure. Preserve an existing game's INI when updating an installation.
+The package does not include NVIDIA's `nvngx_dlssnr.dll`; obtain the runtime matching your GPU
+separately, as described below. You do not need Visual Studio when using this compiled package.
+
+### Runtime and activation
+
 Build and deploy the complete base OptiScaler package plus the forwarder produced by this branch.
 Place `nvngx.dll_dlssnr.dll` and the separately obtained `nvngx_dlssnr.dll` beside the active
 `OptiScaler.dll` (or its renamed proxy DLL). The forwarder's file name is part of the model-call

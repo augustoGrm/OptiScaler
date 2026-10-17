@@ -72,3 +72,21 @@ jobs:
             Write-Output '::error title=NR package::NR shader license missing from package'
             throw 'NR shader license missing from package'
           }
+      - name: Prepare downloadable Windows package
+        shell: pwsh
+        run: |
+          if (!(Test-Path 'x64/Release/a/OptiScaler.dll')) { throw 'OptiScaler.dll missing from package' }
+          Copy-Item LICENSE 'x64/Release/a/Licenses/OptiScaler_LICENSE.txt'
+          Copy-Item docs/DLSSNR_INTEGRATION.md 'x64/Release/a/DLSSNR_INTEGRATION.md'
+          "Source: https://github.com/$env:GITHUB_REPOSITORY/tree/$env:GITHUB_SHA" | Set-Content 'x64/Release/a/SOURCE.txt'
+      - name: Upload Windows package
+        id: package
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: OptiScaler-DLSSNR-v0.1.31-windows-x64
+          path: x64/Release/a/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Show package download
+        shell: pwsh
+        run: Write-Output '::notice title=Windows package download::${{ steps.package.outputs.artifact-url }}'
