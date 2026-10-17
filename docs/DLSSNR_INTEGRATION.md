@@ -55,7 +55,7 @@ separate features, not prerequisites silently provided by copying the whole fork
 
 ## Integration boundaries and original files changed
 
-Only these five original files are changed; the initial patch adds 14 lines across them:
+Only these six original files are changed; the initial patch adds 22 lines across them:
 
 | Original file | Addition and reason |
 | --- | --- |
@@ -63,6 +63,7 @@ Only these five original files are changed; the initial patch adds 14 lines acro
 | `OptiScaler/inputs/NVNGX_DLSS_Dx12.cpp` | Include plus release/shutdown calls. Drop CPU ownership of NR sessions without freeing resources still referenced by recorded/submitted work. |
 | `OptiScaler/Config.cpp` | Include plus one read and one write call on its existing SimpleIni document. No new fields in `Config.h`; other sections remain under the original code's control. |
 | `OptiScaler/menu/menu_common.cpp` | Include and a sidebar entry calling the module's own panel. Existing FG, latency and keybind panels stay intact. |
+| `OptiScaler.sln` | Register the standalone forwarder and its three configurations so solution builds produce the complete package. |
 | `OptiScaler/OptiScaler.vcxproj` | One import of `dlssnr/Module.props`, which owns all new build items and the forwarder project reference. The existing solution builds the reference transitively. |
 
 There are no edits to `dllmain.cpp`, `FG_Hooks.cpp`, `Reflex_Hooks.cpp`, `D3D12_Hooks.cpp`, NVAPI,
@@ -206,7 +207,7 @@ Before merging, run the Windows build/tests, then test on RTX hardware:
 
 Work on `feature/modular-dlssnr`; do not replace `master` with janblade's tree. Fetch and merge the
 desired updates from your base `master` into the feature branch in the usual way, preserving the
-five small extension sites above. Never resolve a conflict by replacing a core file with its
+six small extension sites above. Never resolve a conflict by replacing a core file with its
 janblade counterpart. Recheck the output-resource and state-restoration contract if upstream changes
 `IFeature_Dx12::Evaluate`; update `Integration.cpp` when the feature/NGX metadata interface changes.
 Build membership stays in `Module.props`, settings in `SettingsIni.h`, and UI in `Menu.cpp`.
@@ -216,6 +217,6 @@ and tests against `UPSTREAM.json`, identify new dependencies, and port only the 
 Update the manifest and rerun portable, Windows/WARP and RTX checks. Native-input, FG experiments,
 new API support or caching features each need a separately reviewed adapter, not a fork-wide merge.
 
-To remove this integration, remove the five extension sites/import, the module/shader files and its
+To remove this integration, remove the six extension sites/build entries, the module/shader files and its
 test workflow. Model/ABI/queue-wrapper compatibility remain the principal runtime risks; the small
 core diff reduces merge conflicts but cannot eliminate future interface changes.

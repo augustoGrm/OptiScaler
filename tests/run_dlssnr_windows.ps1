@@ -6,8 +6,18 @@ New-Item -ItemType Directory -Path $BuildDirectory -Force | Out-Null
 Push-Location $root
 try {
     function Invoke-Checked([string]$Program, [string[]]$Arguments) {
-        & $Program @Arguments
-        if ($LASTEXITCODE -ne 0) { throw "$Program failed ($LASTEXITCODE)" }
+        Get-Command $Program -ErrorAction Stop | Out-Null
+        $previousErrorAction = $ErrorActionPreference
+        try {
+            # Native stderr can contain successful compiler/shader warnings. Preserve it as text
+            # and use the process exit code to determine failure, not PowerShell error records.
+            $ErrorActionPreference = 'Continue'
+            & $Program @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+            $commandExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorAction
+        }
+        if ($commandExit -ne 0) { throw "$Program failed ($commandExit)" }
     }
     $common = @('/nologo', '/std:c++20', '/EHsc', '/W4', '/IOptiScaler', '/IOptiScaler/include', '/Iexternal/simpleini')
     Invoke-Checked 'python' @('tests/check_dlssnr_provenance.py')

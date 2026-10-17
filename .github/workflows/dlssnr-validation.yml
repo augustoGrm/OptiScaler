@@ -31,6 +31,7 @@ jobs:
         run: |
           msbuild OptiScaler.sln /m:4 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-build.log"
           $buildExit = $LASTEXITCODE
+          Write-Output "::notice title=MSBuild result::Exit code $buildExit"
           if ($buildExit -ne 0) {
             Get-Content "$env:RUNNER_TEMP/nr-build.log" | Where-Object { $_ -match 'error (C\d+|LNK\d+|MSB\d+)|fatal error|error:' } | Select-Object -Last 20 | ForEach-Object {
               $message = $_.ToString().Replace('%', '%25')
@@ -38,7 +39,10 @@ jobs:
             }
             exit $buildExit
           }
-          if (!(Test-Path 'x64/Release/a/nvngx.dll_dlssnr.dll')) { throw 'NR forwarder missing from package' }
+          if (!(Test-Path 'x64/Release/a/nvngx.dll_dlssnr.dll')) {
+            Write-Output '::error title=NR package::NR forwarder missing from x64/Release/a'
+            throw 'NR forwarder missing from package'
+          }
       - name: Run portable and WARP checks
         if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         shell: pwsh
@@ -46,6 +50,8 @@ jobs:
           try {
             ./tests/run_dlssnr_windows.ps1 *>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-tests.log"
           } catch {
+            $failure = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=NR runner failure::$failure"
             if (Test-Path "$env:RUNNER_TEMP/nr-tests.log") {
               Get-Content "$env:RUNNER_TEMP/nr-tests.log" | Select-Object -Last 15 | ForEach-Object {
                 $message = $_.ToString().Replace('%', '%25')
