@@ -5,10 +5,10 @@ based on `1be9b79682d0c2ab5b01f65db3be7dfa67e07fd1`. It uses the NR shader and m
 janblade **v0.1.31**, commit `5d5cdccdbe671ab222d5e29fc7663e5115bc5d9b`.
 At inspection, v0.1.31 was the newest release tag; `release/0.1.32` existed without a matching tag.
 
-The model invocation, composition, menu and INI persistence are implemented. **This is not verified
-production support or feature parity with janblade's fork.** The full MSVC build and the NVIDIA
-runtime/game tests need Windows; this task's machine is Linux with no GPU. See the validation section
-for the distinction between checks executed here and checks supplied for Windows.
+The model invocation, composition, menu and INI persistence are implemented. The complete solution
+and forwarder have compiled with MSVC on Windows CI. **NVIDIA runtime/game compatibility and feature
+parity with janblade's fork are not established.** This task's development machine is Linux with no
+GPU; see the validation section for the actual checks and remaining hardware validation.
 
 ## Dependency analysis and scope
 
@@ -34,7 +34,8 @@ NGX ReleaseFeature/Shutdown -> NR session retirement
 ```
 
 The shader, constants, guide-region calculations, colour-encoding selection and three upstream tests
-are copied from the pinned tag. Imported C++ headers have formatting changes only; compiled shader
+come from the pinned tag. Imported C++ headers have formatting changes only; the feedback test adds
+crash diagnostics and a published-bytecode variant, retaining all reference assertions. Compiled shader
 bytes are identical. `OptiScaler/dlssnr/UPSTREAM.json` records original/local source checksums and
 the shader-payload SHA-256 checksum.
 The small forwarder is a DX12-only extraction of that tag, with its public call protocol retained.
@@ -159,10 +160,12 @@ msbuild OptiScaler.sln /m:4 /p:Configuration=Release /p:Platform=x64 /verbosity:
 
 The forwarder is built through `Module.props` into `x64/Release/a/`; Debug and ReleaseDebug outputs
 go beside their corresponding main DLL. The main module uses C++20-compatible code under the base
-project's existing language setting, while the standalone forwarder retains C++17.
+project's existing language setting, while the standalone forwarder retains C++17. The NR shader's
+RenoDX attribution is copied into the package's `Licenses/` directory after the base post-build step.
 
 The Windows test script must run from an x64 MSVC developer environment. It runs three portable test
-programs, the upstream D3D11 WARP feedback test, and a D3D12 WARP test of the production runtime plus
+programs, the upstream D3D11 WARP feedback test against both published and source-compiled shaders,
+and a D3D12 WARP test of the production runtime plus
 submission adapter using a **synthetic backend** in a temporary directory. That last test checks
 edge coverage on non-workgroup-aligned dimensions, repeated frame/resource reuse, model invocation
 counts, a visible synthetic edit, resize, multipass at full/reduced scale, exact disabled/zero-work bypass, and missing-model
@@ -179,20 +182,20 @@ Checks executed in this task:
 
 - Three portable C++ programs passed: configuration defaults/validation/round-trip with preservation
   of FG/plugins/shortcuts; depth/MV guide regions; and colour-encoding selection.
-- The forwarder also cross-compiled and linked as a Windows x64 PE DLL with MinGW; that artifact
-  is outside the checkout and is not a verified production release.
-- The isolated runtime, menu, settings, test sources and submission adapter passed Windows-targeted
-  MinGW syntax checks. Checking the old MSVC-specific Detours header used a local compatibility
-  include outside the checkout; this is not an MSVC solution build.
+- The [full Windows MSVC solution build](https://github.com/augustoGrm/OptiScaler/actions/runs/39000775517)
+  passed, including the standalone forwarder and package/license output checks. WARP execution failed
+  with an access violation inside Windows' `d3d10warp.dll` in both the production DX12 test and the
+  upstream feedback test (published and source-compiled shader variants). Follow-up CI runs compare
+  Windows runner versions; this is an unresolved GPU validation failure, not a passing check.
 - Imported source/bytecode provenance matches the exact v0.1.31 tag; the main XML/project import parses.
 - Original FG, Reflex, NVAPI, DXGI, Streamline and ASI files are unchanged from the base commit.
-- Full MSVC compilation, Windows WARP execution, NVIDIA NR evaluation and game/RTX checks were not
-  executed on this Linux machine. A saved CI workflow is not evidence that its jobs passed.
+- NVIDIA NR evaluation and game/RTX checks have not run. The synthetic backend checks the host's
+  composition and lifetime handling, not model loading or compatibility with a particular GPU.
 
 The upstream fork's unrelated `nr_depth_finder_core_smoke` failure (comparison of logs containing
 variable lock-wait timings) is not imported into this branch and is not reported as a passing test.
 
-Before merging, run the Windows build/tests, then test on RTX hardware:
+Before merging, require the Windows build/tests to pass, then test on RTX hardware:
 
 1. Compare disabled NR against `master` in DX12 with DLSS/FSR/XeSS, RCAS and output scaling on/off.
 2. Enable NR with one pass; verify model initialization, visible output, toggle off/on, resolution

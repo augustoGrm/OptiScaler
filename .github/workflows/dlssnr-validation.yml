@@ -15,7 +15,11 @@ jobs:
       - run: git submodule update --init --depth 1 external/simpleini
       - run: bash tests/run_dlssnr_host.sh
   windows:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     steps:
@@ -26,7 +30,24 @@ jobs:
         id: toolchain
         with:
           arch: x64
+      - name: Run portable and WARP checks
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          try {
+            ./tests/run_dlssnr_windows.ps1 *>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-tests.log"
+          } catch {
+            $failure = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=NR runner failure::$failure"
+            if (Test-Path "$env:RUNNER_TEMP/nr-tests.log") {
+              $lines = Get-Content "$env:RUNNER_TEMP/nr-tests.log" | Where-Object { $_ -match 'NR_STAGE:|NR_CRASH:|FAILED:|FAIL:|PASS:' }
+              $message = ($lines -join "`n").Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=NR validation::$message"
+            }
+            throw
+          }
       - name: Build the original solution and NR forwarder
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         shell: pwsh
         run: |
           msbuild OptiScaler.sln /m:4 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-build.log"
@@ -46,21 +67,4 @@ jobs:
           if (!(Test-Path 'x64/Release/a/Licenses/RenoDX_ATTRIBUTION.txt')) {
             Write-Output '::error title=NR package::NR shader license missing from package'
             throw 'NR shader license missing from package'
-          }
-      - name: Run portable and WARP checks
-        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
-        shell: pwsh
-        run: |
-          try {
-            ./tests/run_dlssnr_windows.ps1 *>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/nr-tests.log"
-          } catch {
-            $failure = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error title=NR runner failure::$failure"
-            if (Test-Path "$env:RUNNER_TEMP/nr-tests.log") {
-              Get-Content "$env:RUNNER_TEMP/nr-tests.log" | Where-Object { $_ -match 'NR_STAGE:|NR_CRASH:|FAILED:|FAIL:|PASS:' } | ForEach-Object {
-                $message = $_.ToString().Replace('%', '%25')
-                Write-Output "::error title=NR validation::$message"
-              }
-            }
-            throw
           }

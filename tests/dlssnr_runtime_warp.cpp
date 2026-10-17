@@ -49,6 +49,7 @@ try
     ComPtr<IDXGIAdapter> warp;
     check(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)));
     ComPtr<ID3D12Device> device;
+    std::fprintf(stderr, "NR_STAGE: creating D3D12 WARP device\n");
     check(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)));
     ComPtr<ID3D12CommandQueue> queue;
     D3D12_COMMAND_QUEUE_DESC queueDesc {};
@@ -145,8 +146,9 @@ try
         frame.motion = motion.Get();
         frame.renderWidth = width;
         frame.renderHeight = height;
+        std::fprintf(stderr, "NR_STAGE: runtime frame %ux%u enabled=%u\n", width, height, settings.enabled);
         DlssNr::Process(frame, settings);
-        std::printf("%s\n", DlssNr::GetStatus().c_str());
+        std::fprintf(stderr, "NR_STAGE: %s\n", DlssNr::GetStatus().c_str());
         barrier(commands.Get(), output.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         from.pResource = output.Get();
         from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
