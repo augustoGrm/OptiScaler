@@ -1,6 +1,12 @@
 name: Modular DLSS-NR validation
 on:
   workflow_dispatch:
+    inputs:
+      windows_runner:
+        description: Windows runner image
+        type: choice
+        default: windows-2022
+        options: [windows-2022, windows-latest]
   push:
     branches: [feature/modular-dlssnr]
   pull_request:
@@ -15,11 +21,9 @@ jobs:
       - run: git submodule update --init --depth 1 external/simpleini
       - run: bash tests/run_dlssnr_host.sh
   windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, windows-2022]
-    runs-on: ${{ matrix.os }}
+    # Both shader variants and the DX12 runtime pass on this image. windows-latest
+    # currently crashes inside d3d10warp.dll; manual runs can reproduce it.
+    runs-on: ${{ inputs.windows_runner || 'windows-2022' }}
     permissions:
       contents: read
     steps:

@@ -170,7 +170,8 @@ submission adapter using a **synthetic backend** in a temporary directory. That 
 edge coverage on non-workgroup-aligned dimensions, repeated frame/resource reuse, model invocation
 counts, a visible synthetic edit, resize, multipass at full/reduced scale, exact disabled/zero-work bypass, and missing-model
 fallback. It does not execute NVIDIA's model. Never package the fake test DLL. The GitHub Actions
-workflow `Modular DLSS-NR validation` supplies Linux and full Windows build/test jobs.
+workflow `Modular DLSS-NR validation` supplies Linux and full Windows build/test jobs, pinned to
+`windows-2022`. Its manual dispatch can select `windows-latest` to reproduce the WARP issue below.
 
 On Linux, initialize `external/simpleini` and run:
 
@@ -183,10 +184,14 @@ Checks executed in this task:
 - Three portable C++ programs passed: configuration defaults/validation/round-trip with preservation
   of FG/plugins/shortcuts; depth/MV guide regions; and colour-encoding selection.
 - The [full Windows MSVC solution build](https://github.com/augustoGrm/OptiScaler/actions/runs/39000775517)
-  passed, including the standalone forwarder and package/license output checks. WARP execution failed
-  with an access violation inside Windows' `d3d10warp.dll` in both the production DX12 test and the
-  upstream feedback test (published and source-compiled shader variants). Follow-up CI runs compare
-  Windows runner versions; this is an unresolved GPU validation failure, not a passing check.
+  passed, including the standalone forwarder and package/license output checks.
+- On [Windows Server 2022](https://github.com/augustoGrm/OptiScaler/actions/runs/39001105172/job/117304009815),
+  all portable and WARP checks passed: production DX12 runtime/submission with a synthetic backend,
+  and all feedback reference cases against both published and source-compiled v0.1.31 shaders.
+- The same GPU tests fail on `windows-latest` with an access violation inside Windows'
+  `d3d10warp.dll`. The upstream feedback test fails at dispatch as well. This runner-specific failure
+  remains reproducible via manual workflow dispatch; it is not reported as a passing check and does
+  not establish compatibility with that WARP version. Production NVIDIA-driver behavior needs RTX tests.
 - Imported source/bytecode provenance matches the exact v0.1.31 tag; the main XML/project import parses.
 - Original FG, Reflex, NVAPI, DXGI, Streamline and ASI files are unchanged from the base commit.
 - NVIDIA NR evaluation and game/RTX checks have not run. The synthetic backend checks the host's
